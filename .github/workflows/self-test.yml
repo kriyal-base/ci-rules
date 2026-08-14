@@ -1,0 +1,11 @@
+name: self-test
+on:
+  workflow_dispatch:
+
+jobs:
+  call-quality-gate:
+    uses: kriyal-base/ci-rules/.github/workflows/quality-gate.yml@main
+    with:
+      workspace-path: '.'
+      run-tests: false
+    secrets: inherit
