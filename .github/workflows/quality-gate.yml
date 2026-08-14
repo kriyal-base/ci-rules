@@ -1,9 +1,49 @@
 name: Quality Gate
 on:
-  workflow_call: {}
+  workflow_call:
+    inputs:
+      workspace-path:
+        required: false
+        type: string
+        default: '.'
+      sibling-repo:
+        required: false
+        type: string
+        default: ''
+      sibling-org:
+        required: false
+        type: string
+        default: ''
+      run-fmt:
+        required: false
+        type: boolean
+        default: true
+      run-deny:
+        required: false
+        type: boolean
+        default: true
+      run-machete:
+        required: false
+        type: boolean
+        default: true
+      run-tests:
+        required: false
+        type: boolean
+        default: true
+      auto-fix:
+        required: false
+        type: boolean
+        default: true
+    secrets:
+      SIBLING_DEPLOY_KEY:
+        required: false
 
 jobs:
   gate:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
     steps:
-      - run: echo "bare test ok"
+      - run: echo "step1 test ok"
