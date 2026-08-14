@@ -1,0 +1,220 @@
+name: Quality Gate
+#
+# Shared across every org — public repo, required for cross-org reusable
+# workflow calls (GitHub free plan has no "enterprise" access tier for
+# private cross-org sharing). Contains no proprietary source, just
+# orchestration over each caller's own cargo toolchain.
+#
+# Behavior:
+#   - fmt drift, unused deps (cargo-machete) -> mechanical, low-risk:
+#     AUTO-FIXED. A branch is pushed and a PR opened with the fix.
+#   - cargo-deny violations (banned/duplicate deps, license issues), test
+#     failures -> need engineering judgment: NEVER auto-fixed. Reported as
+#     a PR comment if this run is for an open PR; if already merged
+#     (push event, no open PR), a GitHub issue is filed or, if a matching
+#     one is already open, updated instead of duplicated.
+
+on:
+  workflow_call:
+    inputs:
+      workspace-path:
+        description: 'Path to the Cargo workspace root, relative to repo root'
+        required: false
+        type: string
+        default: '.'
+      sibling-repo:
+        description: 'One additional repo to check out as a sibling, if this workspace path-deps on one'
+        required: false
+        type: string
+        default: ''
+      sibling-org:
+        description: "Org owning sibling-repo (defaults to this repo's own org)"
+        required: false
+        type: string
+        default: ''
+      run-fmt:
+        required: false
+        type: boolean
+        default: true
+      run-deny:
+        required: false
+        type: boolean
+        default: true
+      run-machete:
+        required: false
+        type: boolean
+        default: true
+      run-tests:
+        required: false
+        type: boolean
+        default: true
+      auto-fix:
+        description: 'Auto-fix fmt drift and unused deps via a pushed branch + PR'
+        required: false
+        type: boolean
+        default: true
+    secrets:
+      SIBLING_DEPLOY_KEY:
+        description: 'Read-only SSH deploy key for sibling-repo — required iff sibling-repo is set'
+        required: false
+
+env:
+  RUST_BACKTRACE: 1
+  CARGO_TERM_COLOR: always
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    steps:
+      - name: Checkout self
+        uses: actions/checkout@v4
+        with:
+          path: self
+          fetch-depth: 0
+
+      - name: Checkout sibling
+        if: inputs.sibling-repo != ''
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.sibling-org != '' && inputs.sibling-org || github.repository_owner }}/${{ inputs.sibling-repo }}
+          ssh-key: ${{ secrets.SIBLING_DEPLOY_KEY }}
+          path: ${{ inputs.sibling-repo }}
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - run: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config
+
+      - name: Cache cargo-deny / cargo-machete binaries
+        id: tool-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin
+          key: ci-rules-tools-v1-${{ runner.os }}
+
+      - name: Install cargo-deny / cargo-machete (cache miss only)
+        if: steps.tool-cache.outputs.cache-hit != 'true'
+        run: |
+          cargo install cargo-deny --locked
+          cargo install cargo-machete --locked
+
+      - name: cargo fmt --check
+        id: fmt
+        working-directory: self/${{ inputs.workspace-path }}
+        if: inputs.run-fmt
+        run: |
+          if cargo fmt --check 2>fmt.log; then
+            echo "drift=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "drift=true" >> "$GITHUB_OUTPUT"
+            echo "fmt drift found:"; cat fmt.log
+          fi
+
+      - name: cargo machete (unused deps)
+        id: machete
+        working-directory: self/${{ inputs.workspace-path }}
+        if: inputs.run-machete
+        run: |
+          if cargo machete 2>&1 | tee machete.log | grep -q "cargo-machete found the following"; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Auto-fix fmt + unused deps
+        id: autofix
+        if: inputs.auto-fix && (steps.fmt.outputs.drift == 'true' || steps.machete.outputs.found == 'true')
+        working-directory: self/${{ inputs.workspace-path }}
+        run: |
+          [ "${{ steps.fmt.outputs.drift }}" = "true" ] && cargo fmt
+          [ "${{ steps.machete.outputs.found }}" = "true" ] && cargo machete --fix || true
+          cd "$GITHUB_WORKSPACE/self"
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Open auto-fix PR
+        if: steps.autofix.outputs.changed == 'true'
+        working-directory: self
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          branch="ci-rules/auto-fix-${{ github.run_id }}"
+          git checkout -b "$branch"
+          git config user.name "ci-rules[bot]"
+          git config user.email "ci-rules-bot@users.noreply.github.com"
+          git add -A
+          msg="ci: auto-fix fmt drift / unused deps (quality-gate)"
+          git commit -m "$msg"
+          git push origin "$branch"
+          gh pr create --title "ci: auto-fix fmt drift / unused deps" \
+            --body "Opened automatically by quality-gate (kriyal-base/ci-rules) — cargo fmt / cargo machete --fix applied, no manual changes." \
+            --base "${{ github.event.repository.default_branch || 'main' }}" \
+            --head "$branch"
+
+      - name: cargo deny check
+        id: deny
+        working-directory: self/${{ inputs.workspace-path }}
+        if: inputs.run-deny
+        run: |
+          if cargo deny check 2>&1 | tee deny.log; then
+            echo "violations=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "violations=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: cargo test --workspace
+        id: test
+        working-directory: self/${{ inputs.workspace-path }}
+        if: inputs.run-tests
+        run: |
+          if cargo test --workspace 2>&1 | tee test.log; then
+            echo "failed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "failed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Assemble non-auto-fixable findings
+        id: findings
+        if: steps.deny.outputs.violations == 'true' || steps.test.outputs.failed == 'true'
+        working-directory: self/${{ inputs.workspace-path }}
+        run: |
+          {
+            echo "body<<EOF"
+            echo "## Quality Gate findings — ${{ inputs.workspace-path }}"
+            if [ "${{ steps.deny.outputs.violations }}" = "true" ]; then
+              echo ""; echo "### cargo-deny violations"; echo '```'
+              tail -c 4000 deny.log; echo '```'
+            fi
+            if [ "${{ steps.test.outputs.failed }}" = "true" ]; then
+              echo ""; echo "### Test failures"; echo '```'
+              tail -c 4000 test.log; echo '```'
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Report on PR
+        if: steps.findings.outcome == 'success' && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh pr comment "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --body "${{ steps.findings.outputs.body }}"
+
+      - name: File or update issue (already-merged findings)
+        if: steps.findings.outcome == 'success' && github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="[ci-rules] quality gate findings on ${{ github.ref_name }}"
+          existing=$(gh issue list --repo "${{ github.repository }}" --state open --search "in:title \"$title\"" --json number -q '.[0].number' || true)
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "${{ github.repository }}" --body "${{ steps.findings.outputs.body }}"
+          else
+            gh issue create --repo "${{ github.repository }}" --title "$title" --body "${{ steps.findings.outputs.body }}"
+          fi
