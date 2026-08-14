@@ -6,37 +6,12 @@ on:
         required: false
         type: string
         default: '.'
-      sibling-repo:
+    secrets:
+      SIBLING_DEPLOY_KEY:
         required: false
-        type: string
-        default: ''
-      sibling-org:
-        required: false
-        type: string
-        default: ''
-      run-fmt:
-        required: false
-        type: boolean
-        default: true
-      run-deny:
-        required: false
-        type: boolean
-        default: true
-      run-machete:
-        required: false
-        type: boolean
-        default: true
-      run-tests:
-        required: false
-        type: boolean
-        default: true
-      auto-fix:
-        required: false
-        type: boolean
-        default: true
 
 jobs:
   gate:
     runs-on: ubuntu-latest
     steps:
-      - run: echo "step1b test ok"
+      - run: echo "step1c test ok"
