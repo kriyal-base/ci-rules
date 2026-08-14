@@ -34,16 +34,9 @@ on:
         required: false
         type: boolean
         default: true
-    secrets:
-      SIBLING_DEPLOY_KEY:
-        required: false
 
 jobs:
   gate:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: write
-      issues: write
     steps:
-      - run: echo "step1 test ok"
+      - run: echo "step1b test ok"
