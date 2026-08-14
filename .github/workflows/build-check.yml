@@ -1,0 +1,176 @@
+name: Build Check
+#
+# Generic cross-org build/check/test matrix — companion to quality-gate.yml
+# in this same repo (which handles fmt/deny/machete on a single ubuntu
+# runner). This one handles the case quality-gate doesn't: a workspace
+# that path-deps on MANY sibling repos (possibly across multiple orgs) and
+# needs cargo check/test across a real platform matrix.
+#
+# dependency-repos is a comma-separated "org/repo=local-dir" list — read
+# from the CALLER's own grep-verified Cargo.toml path-deps, never guessed.
+# Cloned via MULTI_REPO_READ_TOKEN (a classic PAT, since a fan-out this
+# wide across orgs isn't a clean fit for the 1-edge deploy-key pattern
+# quality-gate/reusable-base-ci.yml use elsewhere).
+#
+# The platform matrix is computed dynamically from inputs.platforms rather
+# than filtered with per-step `if:` — a statically-declared matrix still
+# schedules (and gets billed for) a job per unwanted platform even with
+# every step skipped.
+
+on:
+  workflow_call:
+    inputs:
+      target-name:
+        description: 'Directory name of the calling repo'
+        required: true
+        type: string
+      target-crates:
+        description: 'Space-separated cargo package names to check/test'
+        required: true
+        type: string
+      dependency-repos:
+        description: 'Comma-separated "org/repo=local-dir" pairs this workspace path-deps on (not including itself)'
+        required: false
+        type: string
+        default: ''
+      allowed-orgs:
+        description: 'Comma-separated GitHub orgs this workspace may depend on. Empty = skip the layer-boundary check.'
+        required: false
+        type: string
+        default: ''
+      platforms:
+        description: 'Comma-separated subset of: linux,macos,windows'
+        required: false
+        type: string
+        default: 'linux'
+      run-tests:
+        required: false
+        type: boolean
+        default: true
+    secrets:
+      MULTI_REPO_READ_TOKEN:
+        description: 'Classic PAT (repo scope) with read access to every org in dependency-repos'
+        required: false
+
+env:
+  RUST_BACKTRACE: 1
+  CARGO_TERM_COLOR: always
+
+jobs:
+  matrix:
+    name: resolve platform matrix
+    runs-on: ubuntu-latest
+    outputs:
+      include: ${{ steps.set.outputs.include }}
+    steps:
+      - id: set
+        shell: bash
+        run: |
+          IFS=',' read -ra PLATS <<< "${{ inputs.platforms }}"
+          json="["
+          first=true
+          for p in "${PLATS[@]}"; do
+            p="$(echo "$p" | xargs)"
+            case "$p" in
+              linux)   runner="ubuntu-latest" ;;
+              macos)   runner="macos-latest" ;;
+              windows) runner="windows-latest" ;;
+              *) echo "::error::unknown platform '$p' in inputs.platforms"; exit 1 ;;
+            esac
+            [ "$first" = true ] || json="$json,"
+            json="$json{\"name\":\"$p\",\"runner\":\"$runner\"}"
+            first=false
+          done
+          json="$json]"
+          echo "include=$json" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: 'build (${{ matrix.platform.name }})'
+    needs: matrix
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: ${{ fromJSON(needs.matrix.outputs.include) }}
+    runs-on: ${{ matrix.platform.runner }}
+    steps:
+      - name: Checkout self
+        uses: actions/checkout@v4
+        with:
+          path: ${{ inputs.target-name }}
+
+      - name: Configure git to use MULTI_REPO_READ_TOKEN for github.com HTTPS
+        if: inputs.dependency-repos != ''
+        shell: bash
+        run: git config --global url."https://x-access-token:${{ secrets.MULTI_REPO_READ_TOKEN }}@github.com/".insteadOf "https://github.com/"
+
+      - name: Clone dependency repos
+        if: inputs.dependency-repos != ''
+        shell: bash
+        run: |
+          IFS=',' read -ra DEPS <<< "${{ inputs.dependency-repos }}"
+          for dep in "${DEPS[@]}"; do
+            org_repo="${dep%%=*}"
+            dir="${dep##*=}"
+            echo "::group::clone $org_repo -> $dir"
+            git clone --depth 1 "https://github.com/${org_repo}.git" "$dir"
+            echo "::endgroup::"
+          done
+
+      - name: Layer-boundary check (org DAG rule)
+        if: inputs.allowed-orgs != ''
+        working-directory: ${{ inputs.target-name }}
+        run: |
+          ALLOWED="${{ inputs.allowed-orgs }},${{ github.repository_owner }}"
+          echo "Allowed orgs for this workspace: $ALLOWED"
+          violation=0
+          while IFS= read -r manifest; do
+            while IFS= read -r org; do
+              [ -z "$org" ] && continue
+              if ! echo ",$ALLOWED," | grep -q ",$org,"; then
+                echo "::error file=$manifest::layer-boundary violation — git dependency on org '$org' is not in allowed-orgs ($ALLOWED)"
+                violation=1
+              fi
+            done < <(grep -oE 'git[[:space:]]*=[[:space:]]*"https://github\.com/[^/]+/' "$manifest" 2>/dev/null | sed -E 's#.*github\.com/##; s#/$##')
+          done < <(find . -name Cargo.toml)
+          if [ "$violation" = "1" ]; then
+            echo "::error::layer-boundary check FAILED — see annotations above."
+            exit 1
+          fi
+          echo "layer-boundary check: no disallowed cross-org dependencies found."
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Pre-install (linux)
+        if: matrix.platform.name == 'linux'
+        run: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config
+
+      - uses: mozilla-actions/sccache-action@v0.0.6
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: build-check-${{ matrix.platform.name }}-${{ inputs.target-name }}
+          workspaces: ${{ inputs.target-name }}
+
+      - name: Cargo check
+        shell: bash
+        env:
+          RUSTC_WRAPPER: sccache
+          SCCACHE_GHA_ENABLED: 'true'
+        run: |
+          cd "${{ inputs.target-name }}"
+          CRATE_FLAGS=""
+          for c in ${{ inputs.target-crates }}; do CRATE_FLAGS="$CRATE_FLAGS -p $c"; done
+          cargo check $CRATE_FLAGS
+
+      - name: Cargo test
+        if: inputs.run-tests
+        shell: bash
+        env:
+          RUSTC_WRAPPER: sccache
+          SCCACHE_GHA_ENABLED: 'true'
+        run: |
+          cd "${{ inputs.target-name }}"
+          CRATE_FLAGS=""
+          for c in ${{ inputs.target-crates }}; do CRATE_FLAGS="$CRATE_FLAGS -p $c"; done
+          cargo test $CRATE_FLAGS --lib
+          cargo test $CRATE_FLAGS --tests
