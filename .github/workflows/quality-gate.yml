@@ -1,17 +1,13 @@
 name: Quality Gate
 on:
-  workflow_call:
-    inputs:
-      workspace-path:
-        required: false
-        type: string
-        default: '.'
-    secrets:
-      SIBLING_DEPLOY_KEY:
-        required: false
+  workflow_call: {}
 
 jobs:
   gate:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
     steps:
-      - run: echo "step1c test ok"
+      - run: echo "step1d test ok"
