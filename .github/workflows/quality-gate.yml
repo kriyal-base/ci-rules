@@ -1,63 +1,9 @@
 name: Quality Gate
 on:
-  workflow_call:
-    inputs:
-      workspace-path:
-        required: false
-        type: string
-        default: '.'
-      sibling-repo:
-        required: false
-        type: string
-        default: ''
-      sibling-org:
-        required: false
-        type: string
-        default: ''
-      run-fmt:
-        required: false
-        type: boolean
-        default: true
-      run-deny:
-        required: false
-        type: boolean
-        default: true
-      run-machete:
-        required: false
-        type: boolean
-        default: true
-      run-tests:
-        required: false
-        type: boolean
-        default: true
-      auto-fix:
-        required: false
-        type: boolean
-        default: true
-    secrets:
-      SIBLING_DEPLOY_KEY:
-        required: false
+  workflow_call: {}
 
 jobs:
   gate:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: write
-      issues: write
     steps:
-      - name: Checkout self
-        uses: actions/checkout@v4
-        with:
-          path: self
-          fetch-depth: 0
-
-      - name: Checkout sibling
-        if: inputs.sibling-repo != ''
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ inputs.sibling-org != '' && inputs.sibling-org || github.repository_owner }}/${{ inputs.sibling-repo }}
-          ssh-key: ${{ secrets.SIBLING_DEPLOY_KEY }}
-          path: ${{ inputs.sibling-repo }}
-
-      - run: echo "minimal test ok"
+      - run: echo "bare test ok"
