@@ -5,3 +5,9 @@ on:
 jobs:
   call-quality-gate:
     uses: ./.github/workflows/quality-gate.yml
+    with:
+      workspace-path: '.'
+      run-tests: false
+      allowed-orgs: 'kriyal-base'
+    secrets:
+      CI_RULES_BOT_TOKEN: ${{ secrets.CI_RULES_BOT_TOKEN }}
