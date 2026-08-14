@@ -1,5 +1,14 @@
 name: self-test
+#
+# Permanent smoke test for this shared repo — not a one-off. Runs whenever
+# ci-rules itself changes (push/PR) so a schema or behavior regression in
+# quality-gate.yml (or the attestation pattern below) is caught here,
+# before it breaks every org that calls this repo.
+
 on:
+  push:
+    branches: [main]
+  pull_request:
   workflow_dispatch:
 
 jobs:
