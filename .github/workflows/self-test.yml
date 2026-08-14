@@ -4,8 +4,7 @@ on:
 
 jobs:
   call-quality-gate:
-    uses: kriyal-base/ci-rules/.github/workflows/quality-gate.yml@main
+    uses: ./.github/workflows/quality-gate.yml
     with:
       workspace-path: '.'
       run-tests: false
-    secrets: inherit
