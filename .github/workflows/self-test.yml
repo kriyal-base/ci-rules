@@ -11,3 +11,15 @@ jobs:
       allowed-orgs: 'kriyal-base'
     secrets:
       CI_RULES_BOT_TOKEN: ${{ secrets.CI_RULES_BOT_TOKEN }}
+
+  attest-probe:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      attestations: write
+      contents: read
+    steps:
+      - run: echo "probe artifact" > probe.txt
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: 'probe.txt'
