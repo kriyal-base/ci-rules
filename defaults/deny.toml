@@ -1,0 +1,26 @@
+# Default cargo-deny config, auto-provisioned by quality-gate.yml when a
+# workspace has no deny.toml of its own. Deliberately conservative: only
+# security advisories are hard-denied; everything else warns (visible in
+# the quality-gate report, does not fail the run) until a repo owner tunes
+# it. Drop a deny.toml at the workspace root to override.
+
+[graph]
+all-features = false
+
+[advisories]
+version = 2
+yanked = "deny"
+
+[licenses]
+version = 2
+allow = ["MIT", "Apache-2.0", "Apache-2.0 WITH LLVM-exception", "BSD-2-Clause", "BSD-3-Clause", "ISC", "Unicode-3.0", "Zlib"]
+confidence-threshold = 0.8
+
+[bans]
+multiple-versions = "warn"
+wildcards = "warn"
+deny = []
+
+[sources]
+unknown-registry = "warn"
+unknown-git = "warn"
