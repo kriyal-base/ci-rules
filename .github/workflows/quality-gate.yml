@@ -159,6 +159,25 @@ jobs:
             --base "${{ github.event.repository.default_branch || 'main' }}" \
             --head "$branch"
 
+      - name: Checkout ci-rules (for default deny.toml fallback)
+        if: inputs.run-deny
+        uses: actions/checkout@v4
+        with:
+          repository: kriyal-base/ci-rules
+          path: ci-rules
+          sparse-checkout: |
+            defaults/deny.toml
+          sparse-checkout-cone-mode: false
+
+      - name: Provision default deny.toml if caller has none
+        if: inputs.run-deny
+        working-directory: self/${{ inputs.workspace-path }}
+        run: |
+          if [ ! -f deny.toml ]; then
+            cp "$GITHUB_WORKSPACE/ci-rules/defaults/deny.toml" deny.toml
+            echo "no deny.toml in this workspace — using the ci-rules default"
+          fi
+
       - name: cargo deny check
         id: deny
         working-directory: self/${{ inputs.workspace-path }}
