@@ -5,6 +5,3 @@ on:
 jobs:
   call-quality-gate:
     uses: ./.github/workflows/quality-gate.yml
-    with:
-      workspace-path: '.'
-      run-tests: false
