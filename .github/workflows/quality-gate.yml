@@ -180,11 +180,15 @@ jobs:
           fi
 
       - name: Open auto-fix PR
-        if: steps.autofix.outputs.changed == 'true' && secrets.CI_RULES_BOT_TOKEN != ''
+        if: steps.autofix.outputs.changed == 'true'
         working-directory: self
         env:
           GH_TOKEN: ${{ secrets.CI_RULES_BOT_TOKEN }}
         run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::warning::CI_RULES_BOT_TOKEN not set on this repo — fmt/machete drift found but cannot auto-fix. Fix locally: cargo fmt && cargo machete --fix"
+            exit 0
+          fi
           branch="ci-rules/auto-fix-${{ github.run_id }}"
           git checkout -b "$branch"
           git config user.name "ci-rules-bot"
@@ -260,16 +264,25 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Report on PR
-        if: steps.findings.outcome == 'success' && github.event_name == 'pull_request' && secrets.CI_RULES_BOT_TOKEN != ''
-        env:
-          GH_TOKEN: ${{ secrets.CI_RULES_BOT_TOKEN }}
-        run: gh pr comment "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --body "${{ steps.findings.outputs.body }}"
-
-      - name: File or update issue (already-merged findings)
-        if: steps.findings.outcome == 'success' && github.event_name != 'pull_request' && secrets.CI_RULES_BOT_TOKEN != ''
+        if: steps.findings.outcome == 'success' && github.event_name == 'pull_request'
         env:
           GH_TOKEN: ${{ secrets.CI_RULES_BOT_TOKEN }}
         run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::warning::CI_RULES_BOT_TOKEN not set on this repo — findings exist but cannot be posted to the PR. See job log above."
+            exit 0
+          fi
+          gh pr comment "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --body "${{ steps.findings.outputs.body }}"
+
+      - name: File or update issue (already-merged findings)
+        if: steps.findings.outcome == 'success' && github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.CI_RULES_BOT_TOKEN }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::warning::CI_RULES_BOT_TOKEN not set on this repo — findings exist but no issue could be filed. See job log above."
+            exit 0
+          fi
           title="[ci-rules] quality gate findings on ${{ github.ref_name }}"
           existing=$(gh issue list --repo "${{ github.repository }}" --state open --search "in:title \"$title\"" --json number -q '.[0].number' || true)
           if [ -n "$existing" ]; then
