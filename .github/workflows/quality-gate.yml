@@ -131,7 +131,7 @@ jobs:
 
       - name: Cache cargo-deny / cargo-machete binaries
         id: tool-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cargo/bin
           key: ci-rules-tools-v1-${{ runner.os }}
