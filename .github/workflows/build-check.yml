@@ -94,7 +94,7 @@ jobs:
     runs-on: ${{ matrix.platform.runner }}
     steps:
       - name: Checkout self
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           path: ${{ inputs.target-name }}
 

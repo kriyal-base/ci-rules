@@ -86,14 +86,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout self
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           path: self
           fetch-depth: 0
 
       - name: Checkout sibling
         if: inputs.sibling-repo != ''
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: ${{ inputs.sibling-org != '' && inputs.sibling-org || github.repository_owner }}/${{ inputs.sibling-repo }}
           ssh-key: ${{ secrets.SIBLING_DEPLOY_KEY }}
@@ -205,7 +205,7 @@ jobs:
 
       - name: Checkout ci-rules (for default deny.toml fallback)
         if: inputs.run-deny
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: kriyal-base/ci-rules
           path: ci-rules
