@@ -207,7 +207,7 @@ jobs:
         if: inputs.run-deny
         uses: actions/checkout@v4
         with:
-          repository: kriyal-base/ci-rules
+          repository: kriyal-cli-private/ci-rules
           path: ci-rules
           sparse-checkout: |
             defaults/deny.toml
